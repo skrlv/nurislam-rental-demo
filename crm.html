@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <meta name="theme-color" content="#1b302a">
+  <title>Демо CRM — NURISLAM</title>
+  <meta name="description" content="Демонстрационный календарь аренды и управление тестовыми заявками. Данные сохраняются только в этом браузере.">
+  <link rel="stylesheet" href="crm.css">
+  <script type="module" src="js/crm.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#crm-main">К содержимому</a>
+  <div class="crm-shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html">NURISLAM<span>RENTAL STUDIO</span></a>
+      <div class="workspace-label"><span class="status-dot"></span> Демо CRM</div>
+      <nav class="tabs" aria-label="Разделы CRM">
+        <button type="button" class="tab active" data-tab="calendar" aria-pressed="true"><span class="tab-icon" aria-hidden="true">▦</span>Календарь</button>
+        <button type="button" class="tab" data-tab="requests" aria-pressed="false"><span class="tab-icon" aria-hidden="true">≡</span>Заявки <span id="pending-badge" class="nav-badge">0</span></button>
+        <button type="button" class="tab" data-tab="fleet" aria-pressed="false"><span class="tab-icon" aria-hidden="true">◇</span>Автомобили</button>
+      </nav>
+      <div class="sidebar-bottom"><p>Данные этого браузера</p><span>Без авторизации и общей базы. Все записи — тестовые.</span><a href="index.html">← Открыть сайт</a></div>
+    </aside>
+    <main id="crm-main" class="main">
+      <header class="page-header"><div><p class="eyebrow">ЛИЧНЫЙ КАБИНЕТ · ДЕМОВЕРСИЯ</p><h1 id="page-title">Календарь аренды</h1><p id="page-description" class="page-description">Весь автопарк и занятость — в одном месте.</p></div><button id="add-reservation" class="button primary" type="button"><span aria-hidden="true">＋</span> Добавить запись</button></header>
+      <div class="demo-notice"><span class="notice-icon" aria-hidden="true">i</span><p><strong>Демо CRM • данные этого браузера.</strong> Заявки не отправляются владельцу. Не вводите настоящие имена и контакты. Начальные записи показывают только пример занятости.</p></div>
+      <div id="storage-warning" class="storage-warning" role="alert" hidden></div>
+      <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+      <section class="stats" aria-label="Сводка демоданных"><div class="stat"><span>Автомобилей в каталоге</span><strong id="stat-cars">—</strong></div><div class="stat"><span>Новых заявок</span><strong id="stat-pending">—</strong></div><div class="stat"><span>Подтверждённых записей</span><strong id="stat-confirmed">—</strong></div></section>
+      <section id="panel-calendar" class="panel" aria-label="Календарь">
+        <div class="panel-heading"><div><h2 id="week-label">Неделя</h2><p>Все даты и время — МСК, UTC+3</p></div><div class="calendar-controls"><button id="previous-week" class="icon-button" aria-label="Предыдущая неделя" type="button">←</button><button id="current-week" class="button secondary" type="button">Сегодня</button><button id="next-week" class="icon-button" aria-label="Следующая неделя" type="button">→</button></div></div>
+        <div class="legend"><span><i class="confirmed"></i>Подтверждено</span><span><i class="pending"></i>Заявка</span><span><i class="blocked"></i>Недоступен</span><span class="legend-note">Нажмите на день, чтобы добавить запись</span></div>
+        <div class="calendar-scroll" tabindex="0" role="region" aria-label="Недельный календарь. На узком экране прокручивается по горизонтали."><div id="calendar-grid" class="calendar-grid"></div></div>
+        <p class="calendar-hint">Заявка ещё не резервирует время. После подтверждения автомобиль станет недоступен на выбранный период.</p>
+      </section>
+      <section id="panel-requests" class="panel" aria-label="Заявки" hidden><div class="panel-heading"><div><h2>Все записи</h2><p>Подтверждайте, завершайте или отменяйте тестовые заявки.</p></div><label class="filter-label">Статус<select id="request-filter"><option value="all">Все записи</option><option value="pending">Новые заявки</option><option value="confirmed">Подтверждённые</option><option value="blocked">Блокировки</option><option value="completed">Завершённые</option><option value="cancelled">Отменённые</option></select></label></div><div id="request-list" class="request-list"></div></section>
+      <section id="panel-fleet" class="panel fleet-panel" aria-label="Автомобили" hidden><div class="panel-heading"><div><h2>Демонстрационный автопарк</h2><p>Названия и видимость меняются только в этом браузере.</p></div></div><div id="fleet-grid" class="fleet-grid"></div></section>
+      <footer class="crm-footer"><p>Это интерактивный прототип, а не рабочая система бронирования.</p><button id="reset-demo" class="text-button" type="button">Восстановить демоданные</button></footer>
+    </main>
+  </div>
+
+  <dialog id="reservation-dialog" class="modal" aria-labelledby="reservation-title">
+    <form id="reservation-form"><div class="modal-heading"><div><p class="eyebrow">ТЕСТОВАЯ ЗАПИСЬ</p><h2 id="reservation-title">Добавить в календарь</h2></div><button class="close-button" type="button" data-close-dialog="reservation-dialog" aria-label="Закрыть">×</button></div>
+      <p class="modal-subtitle">Никаких сообщений клиентам. Запись останется в этом браузере.</p>
+      <label>Автомобиль<select name="carId" id="reservation-car" required></select></label>
+      <div class="form-grid"><label>Начало · МСК<input name="start" type="datetime-local" required></label><label>Окончание · МСК<input name="end" type="datetime-local" required></label></div>
+      <div class="form-grid"><label>Тип записи<select name="status"><option value="confirmed">Тестовая аренда</option><option value="blocked">Обслуживание / блокировка</option></select></label><label>Событие<select name="eventType"><option>Свадьба</option><option>Деловая встреча</option><option>Особое событие</option><option>Обслуживание</option></select></label></div>
+      <label>Тестовое название<input name="customerName" maxlength="80" value="Тестовый клиент" autocomplete="off" placeholder="Например, тестовая свадьба"></label>
+      <label>Заметка для демо<textarea name="notes" rows="2" maxlength="500" placeholder="Без персональных данных"></textarea></label>
+      <p id="reservation-duration" class="form-hint"></p><p id="reservation-error" class="form-error" role="alert" hidden></p>
+      <div class="modal-actions"><button class="button secondary" type="button" data-close-dialog="reservation-dialog">Отмена</button><button class="button primary" type="submit">Сохранить тестовую запись</button></div>
+    </form>
+  </dialog>
+  <dialog id="car-dialog" class="modal small-modal" aria-labelledby="car-title"><form id="car-form"><div class="modal-heading"><div><p class="eyebrow">АВТОПАРК</p><h2 id="car-title">Изменить автомобиль</h2></div><button class="close-button" type="button" data-close-dialog="car-dialog" aria-label="Закрыть">×</button></div><input name="id" type="hidden"><label>Название<input name="name" maxlength="80" required></label><label>Описание<textarea name="description" rows="3" maxlength="220"></textarea></label><label>Категория<select name="category"><option value="wedding">Для свадьбы</option><option value="meeting">Для встречи</option></select></label><label class="checkbox-row"><input type="checkbox" name="active"> Показывать в каталоге</label><p id="car-error" class="form-error" role="alert" hidden></p><div class="modal-actions"><button class="button secondary" type="button" data-close-dialog="car-dialog">Отмена</button><button class="button primary" type="submit">Сохранить</button></div></form></dialog>
+</body>
+</html>
