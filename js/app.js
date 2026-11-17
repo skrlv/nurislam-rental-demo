@@ -1,5 +1,5 @@
-import { getCars, getStorageStatus, availability, createRequest, subscribe, formatDateTime, parseLocalDateTime, defaultPeriod, toLocalInput, durationLabel, validatePeriod } from './store.js';
-import { initChat } from './chat.js';
+import { getCars, getStorageStatus, availability, createRequest, subscribe, formatDateTime, parseLocalDateTime, defaultPeriod, toLocalInput, durationLabel, validatePeriod, isSafeCarImage, DEFAULT_CAR_IMAGE } from './store.js?v=20261117-fleet';
+import { initChat } from './chat.js?v=20261117-fleet';
 
 const $ = (selector, scope = document) => scope.querySelector(selector);
 const $$ = (selector, scope = document) => [...scope.querySelectorAll(selector)];
@@ -114,14 +114,20 @@ function renderCars() {
         setMessage(error.message, 'error');
       }
     }
-    const image = /^assets\/images\/[a-z0-9-]+\.(webp|png|jpe?g)$/.test(car.image || '') ? car.image : 'assets/images/hero.webp';
+    const image = isSafeCarImage(car.image) ? car.image : DEFAULT_CAR_IMAGE;
     const responsiveImage = ['maybach', 'business'].includes(car.id) && image === `assets/images/${car.id}.webp`
       ? ` srcset="assets/images/${car.id}-480.webp 480w, assets/images/${car.id}-800.webp 800w" sizes="(max-width: 700px) 90vw, 33vw"` : '';
     return `<article class="car-card">
-      <div class="car-image-wrap"><img src="${escapeHtml(image)}"${responsiveImage} alt="${escapeHtml(car.name)} — иллюстративный автомобиль" width="800" height="540" loading="lazy" decoding="async"><span class="car-image-number">0${index + 1} / АВТОМОБИЛИ</span></div>
+      <div class="car-image-wrap"><img src="${escapeHtml(image)}"${responsiveImage} alt="${escapeHtml(car.name)}" width="800" height="540" loading="lazy" decoding="async"><span class="car-image-number">${String(index + 1).padStart(2, '0')} / АВТОМОБИЛИ</span></div>
       <div class="car-content"><p class="car-category">${car.category === 'wedding' ? 'Для особенных событий' : 'Комфорт в каждой детали'}</p><h3>${escapeHtml(car.name)}</h3><p class="car-description">${escapeHtml(car.description)}</p><p class="car-availability${availabilityClass}">${icons.calendar}<span>${escapeHtml(availabilityText)}</span></p><button class="button button-outline" type="button" data-car-action="${action}" data-car-id="${escapeHtml(car.id)}"${state.storageError ? ' disabled' : ''}>${actionText}${icons.arrow}</button></div>
     </article>`;
   }).join('');
+  $$('.car-image-wrap img', $('#car-grid')).forEach(image => {
+    image.addEventListener('error', () => {
+      image.removeAttribute('srcset');
+      image.src = DEFAULT_CAR_IMAGE;
+    }, { once: true });
+  });
   if (!filtered.length) {
     $('#car-grid').innerHTML = `<div class="empty-catalog"><p>Для выбранного фильтра нет автомобилей.</p><button type="button" class="button button-outline" data-reset-filters>Показать все автомобили</button></div>`;
   }
@@ -258,7 +264,12 @@ startInput.min = minimum;
 endInput.min = minimum;
 const initialStorage = getStorageStatus();
 if (initialStorage.message) setMessage(initialStorage.message, 'error');
-subscribe(() => { renderCarSelect(); renderCars(); });
+subscribe(() => {
+  const selectedCar = carSelect.value;
+  renderCarSelect();
+  renderCars();
+  if (carSelect.value !== selectedCar) chat?.refreshContext();
+});
 
 chat = initChat({
   getContext: () => {

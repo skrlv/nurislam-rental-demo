@@ -1,5 +1,5 @@
-import { answerQuestion } from './chat-core.js';
-import { getCars, availability } from './store.js';
+import { answerQuestion } from './chat-core.js?v=20261117-fleet';
+import { getCars, availability } from './store.js?v=20261117-fleet';
 
 /** A local knowledge helper. No visitor messages are sent to a server. */
 export function initChat({ getContext = () => ({}), onApplyPeriod, onSelectCar } = {}) {

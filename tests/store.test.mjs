@@ -1,12 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createDemoStore, parseLocalDateTime, toLocalInput, defaultPeriod, overlaps, durationLabel, STORAGE_KEY } from '../js/store.js';
+import { createDemoStore, parseLocalDateTime, toLocalInput, defaultPeriod, overlaps, durationLabel, STORAGE_KEY, DEFAULT_CAR_IMAGE, MAX_CAR_IMAGE_LENGTH, isSafeCarImage } from '../js/store.js';
 
 const NOW = Date.parse('2026-11-17T08:00:00+03:00');
 const iso = local => parseLocalDateTime(local);
 const storage = () => { const values = new Map(); return { getItem: key => values.get(key) ?? null, setItem: (key, value) => values.set(key, value), removeItem: key => values.delete(key) }; };
 const setup = () => { let next = 0; return createDemoStore({ storage: storage(), now: () => NOW, idFactory: () => `test-${++next}` }); };
 const request = (start = '2026-11-20T10:00', end = '2026-11-20T14:00') => ({ carId: 'business', start: iso(start), end: iso(end), eventType: 'Деловая встреча', customerName: 'Тестовый клиент' });
+const PNG_IMAGE = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j6ioAAAAASUVORK5CYII=';
 
 test('Moscow input converts deterministically and rejects invalid calendar dates', () => {
   assert.equal(iso('2026-11-17T10:30'), '2026-11-17T07:30:00.000Z');
@@ -140,4 +141,116 @@ test('corrupt data is preserved until explicit reset, then listeners are notifie
 test('callers cannot mutate store state through returned records', () => {
   const store = setup(); const cars = store.getCars(); cars[0].name = 'modified';
   assert.equal(store.getCars()[0].name, 'Rolls-Royce');
+});
+
+test('new cars are trimmed, persisted and bookable with a stable id after edits and reload', () => {
+  const shared = storage();
+  const store = createDemoStore({ storage: shared, now: () => NOW, idFactory: () => 'custom' });
+  let updates = 0; store.subscribe(() => updates++);
+  const car = store.createCar({ name: '  Мой автомобиль  ', description: '  Для поездок  ', image: PNG_IMAGE });
+  assert.equal(car.name, 'Мой автомобиль');
+  assert.equal(car.description, 'Для поездок');
+  assert.equal(car.category, 'meeting');
+  assert.equal(car.active, true);
+  assert.equal(car.image, PNG_IMAGE);
+  assert.equal(car.isDemo, true);
+  assert.equal(updates, 1);
+  store.updateCar(car.id, { name: 'Новое название' });
+  const reloaded = createDemoStore({ storage: shared, now: () => NOW });
+  assert.equal(reloaded.getCars().find(item => item.id === car.id).name, 'Новое название');
+  assert.equal(reloaded.getCars().find(item => item.id === car.id).image, PNG_IMAGE);
+  const booking = reloaded.createRequest({ ...request(), carId: car.id });
+  assert.equal(booking.carId, car.id);
+  car.name = 'Несохранённое изменение';
+  assert.equal(reloaded.getCars().find(item => item.id === car.id).name, 'Новое название');
+});
+
+test('new cars use a placeholder and unique ids even when the id source repeats across instances', () => {
+  const shared = storage();
+  const first = createDemoStore({ storage: shared, now: () => NOW, idFactory: () => 'same' });
+  const second = createDemoStore({ storage: shared, now: () => NOW, idFactory: () => 'same' });
+  const one = first.createCar({ name: 'Первый', category: 'wedding', active: false });
+  const two = second.createCar({ name: 'Второй' });
+  assert.notEqual(one.id, two.id);
+  assert.equal(one.image, DEFAULT_CAR_IMAGE);
+  assert.equal(one.active, false);
+  assert.equal(one.category, 'wedding');
+  assert.equal(second.getCars().length, 5);
+  assert.equal(second.availability(one.id, request().start, request().end).available, false);
+});
+
+test('invalid new-car fields fail without saving any partial car', () => {
+  const shared = storage(), store = createDemoStore({ storage: shared, now: () => NOW });
+  const before = shared.getItem(STORAGE_KEY);
+  for (const payload of [undefined, null, {}, { name: '   ' }, { name: 123 }, { name: 'a'.repeat(81) }, { name: 'Авто', description: 'a'.repeat(221) }, { name: 'Авто', category: 'invalid' }, { name: 'Авто', active: 'true' }, { name: 'Авто', image: 'https://example.com/car.png' }]) {
+    assert.throws(() => store.createCar(payload), error => error.code === 'VALIDATION');
+    assert.equal(shared.getItem(STORAGE_KEY), before);
+  }
+});
+
+test('image policy accepts bundled images and bounded JPEG, PNG and WebP raster data', () => {
+  assert.equal(isSafeCarImage(DEFAULT_CAR_IMAGE), true);
+  for (const car of setup().getCars()) assert.equal(isSafeCarImage(car.image), true);
+  assert.equal(isSafeCarImage(PNG_IMAGE), true);
+  assert.equal(isSafeCarImage('data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2Q=='), true);
+  assert.equal(isSafeCarImage('data:image/webp;base64,UklGRiIAAABXRUJQVlA4IBYAAAAwAQCdASoBAAEADsD+JaQAA3AAAAAA'), true);
+  for (const image of [null, '', 'https://example.com/car.png', '//example.com/car.png', 'javascript:alert(1)', 'assets/images/../car.webp', 'assets/images/unknown.webp', 'assets/images/hero.webp?external=1', 'data:image/svg+xml;base64,PHN2Zy8+', 'data:text/html;base64,PHNjcmlwdD4=', 'data:image/png;base64,/9j/4AAQSkZJRg==', 'data:image/png;base64,not base64!', PNG_IMAGE.slice(0, -1), `data:image/jpeg;base64,${'A'.repeat(MAX_CAR_IMAGE_LENGTH)}`]) {
+    assert.equal(isSafeCarImage(image), false);
+  }
+});
+
+test('image updates persist safely and invalid replacements do not partially save other fields', () => {
+  const store = setup();
+  const car = store.createCar({ name: 'Свой автомобиль' });
+  store.updateCar(car.id, { image: PNG_IMAGE });
+  assert.equal(store.getCars().find(item => item.id === car.id).image, PNG_IMAGE);
+  assert.throws(() => store.updateCar(car.id, { name: 'Не сохранять', image: 'data:image/svg+xml;base64,PHN2Zy8+' }), /JPEG/);
+  const unchanged = store.getCars().find(item => item.id === car.id);
+  assert.equal(unchanged.name, 'Свой автомобиль');
+  assert.equal(unchanged.image, PNG_IMAGE);
+  store.updateCar(car.id, { image: DEFAULT_CAR_IMAGE });
+  assert.equal(store.getCars().find(item => item.id === car.id).image, DEFAULT_CAR_IMAGE);
+});
+
+test('image length limit accepts the largest fitting raster data and rejects the next base64 block', () => {
+  const prefix = 'data:image/png;base64,';
+  const bytes = Buffer.alloc(Math.floor((MAX_CAR_IMAGE_LENGTH - prefix.length) / 4) * 3);
+  Buffer.from(PNG_IMAGE.slice(prefix.length), 'base64').copy(bytes);
+  const maximum = prefix + bytes.toString('base64');
+  const oversized = prefix + Buffer.concat([bytes, Buffer.alloc(3)]).toString('base64');
+  assert.equal(isSafeCarImage(maximum), true);
+  assert.equal(isSafeCarImage(oversized), false);
+  const store = setup();
+  assert.throws(() => store.createCar({ name: 'Фото больше лимита', image: oversized }), /слишком большое/);
+  assert.equal(store.getCars().length, 3);
+});
+
+test('quota failures during car creation or photo replacement preserve existing data and do not notify', () => {
+  const shared = storage(); let deny = false;
+  const wrapped = { getItem: shared.getItem, setItem: (...args) => { if (deny) throw new Error('quota'); shared.setItem(...args); } };
+  const store = createDemoStore({ storage: wrapped, now: () => NOW });
+  let updates = 0; store.subscribe(() => updates++);
+  const before = shared.getItem(STORAGE_KEY); deny = true;
+  assert.throws(() => store.createCar({ name: 'Новое авто', image: PNG_IMAGE }), error => error.code === 'STORAGE_WRITE');
+  assert.throws(() => store.updateCar('business', { image: PNG_IMAGE }), error => error.code === 'STORAGE_WRITE');
+  assert.equal(shared.getItem(STORAGE_KEY), before);
+  assert.equal(store.getCars().length, 3);
+  assert.equal(updates, 0);
+});
+
+test('legacy cars without images get a placeholder; unsafe saved images are rejected and preserved for recovery', () => {
+  const shared = storage(); createDemoStore({ storage: shared, now: () => NOW });
+  const legacy = JSON.parse(shared.getItem(STORAGE_KEY));
+  delete legacy.cars[0].image;
+  shared.setItem(STORAGE_KEY, JSON.stringify(legacy));
+  const migrated = createDemoStore({ storage: shared, now: () => NOW });
+  assert.equal(migrated.getStorageStatus().available, true);
+  assert.equal(migrated.getCars()[0].image, DEFAULT_CAR_IMAGE);
+  legacy.cars[0].image = 'https://example.com/track.png';
+  const unsafe = JSON.stringify(legacy); shared.setItem(STORAGE_KEY, unsafe);
+  const rejected = createDemoStore({ storage: shared, now: () => NOW });
+  assert.equal(rejected.getStorageStatus().available, false);
+  assert.equal(rejected.getCars().some(car => car.image === legacy.cars[0].image), false);
+  assert.throws(() => rejected.createCar({ name: 'Авто' }), /изображение/);
+  assert.equal(shared.getItem(STORAGE_KEY), unsafe);
 });

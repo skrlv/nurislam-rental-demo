@@ -7,8 +7,8 @@
   <meta name="theme-color" content="#1b302a">
   <title>Демо CRM — NURISLAM</title>
   <meta name="description" content="Демонстрационный календарь аренды и управление тестовыми заявками. Данные сохраняются только в этом браузере.">
-  <link rel="stylesheet" href="crm.css">
-  <script type="module" src="js/crm.js"></script>
+  <link rel="stylesheet" href="crm.css?v=20261117-fleet">
+  <script type="module" src="js/crm.js?v=20261117-fleet"></script>
 </head>
 <body>
   <a class="skip-link" href="#crm-main">К содержимому</a>
@@ -36,7 +36,7 @@
         <p class="calendar-hint">Заявка ещё не резервирует время. После подтверждения автомобиль станет недоступен на выбранный период.</p>
       </section>
       <section id="panel-requests" class="panel" aria-label="Заявки" hidden><div class="panel-heading"><div><h2>Все записи</h2><p>Подтверждайте, завершайте или отменяйте тестовые заявки.</p></div><label class="filter-label">Статус<select id="request-filter"><option value="all">Все записи</option><option value="pending">Новые заявки</option><option value="confirmed">Подтверждённые</option><option value="blocked">Блокировки</option><option value="completed">Завершённые</option><option value="cancelled">Отменённые</option></select></label></div><div id="request-list" class="request-list"></div></section>
-      <section id="panel-fleet" class="panel fleet-panel" aria-label="Автомобили" hidden><div class="panel-heading"><div><h2>Демонстрационный автопарк</h2><p>Названия и видимость меняются только в этом браузере.</p></div></div><div id="fleet-grid" class="fleet-grid"></div></section>
+      <section id="panel-fleet" class="panel fleet-panel" aria-label="Автомобили" hidden><div class="panel-heading"><div><h2>Демонстрационный автопарк</h2><p>Добавляйте автомобили, меняйте фотографии и видимость. Данные сохраняются в этом браузере.</p></div><button id="add-car" class="button primary" type="button"><span aria-hidden="true">＋</span> Добавить автомобиль</button></div><div id="fleet-grid" class="fleet-grid"></div></section>
       <footer class="crm-footer"><p>Это интерактивный прототип, а не рабочая система бронирования.</p><button id="reset-demo" class="text-button" type="button">Восстановить демоданные</button></footer>
     </main>
   </div>
@@ -53,6 +53,25 @@
       <div class="modal-actions"><button class="button secondary" type="button" data-close-dialog="reservation-dialog">Отмена</button><button class="button primary" type="submit">Сохранить тестовую запись</button></div>
     </form>
   </dialog>
-  <dialog id="car-dialog" class="modal small-modal" aria-labelledby="car-title"><form id="car-form"><div class="modal-heading"><div><p class="eyebrow">АВТОПАРК</p><h2 id="car-title">Изменить автомобиль</h2></div><button class="close-button" type="button" data-close-dialog="car-dialog" aria-label="Закрыть">×</button></div><input name="id" type="hidden"><label>Название<input name="name" maxlength="80" required></label><label>Описание<textarea name="description" rows="3" maxlength="220"></textarea></label><label>Категория<select name="category"><option value="wedding">Для свадьбы</option><option value="meeting">Для встречи</option></select></label><label class="checkbox-row"><input type="checkbox" name="active"> Показывать в каталоге</label><p id="car-error" class="form-error" role="alert" hidden></p><div class="modal-actions"><button class="button secondary" type="button" data-close-dialog="car-dialog">Отмена</button><button class="button primary" type="submit">Сохранить</button></div></form></dialog>
+  <dialog id="car-dialog" class="modal small-modal" aria-labelledby="car-title">
+    <form id="car-form">
+      <div class="modal-heading"><div><p class="eyebrow">АВТОПАРК</p><h2 id="car-title">Добавить автомобиль</h2></div><button class="close-button" type="button" data-close-dialog="car-dialog" aria-label="Закрыть">×</button></div>
+      <p class="modal-subtitle">Автомобиль появится в каталоге и календаре этого браузера.</p>
+      <input name="id" type="hidden">
+      <label>Название<input name="name" type="text" maxlength="80" placeholder="Например, BMW 5 серии" required></label>
+      <label>Описание<textarea name="description" rows="3" maxlength="220" placeholder="Особенности автомобиля и для каких поездок подходит"></textarea></label>
+      <label>Категория<select name="category"><option value="wedding">Для свадьбы</option><option value="meeting">Для встречи</option></select></label>
+      <div class="car-photo-field">
+        <img id="car-photo-preview" class="car-photo-preview" src="assets/images/car-placeholder.svg" alt="Предпросмотр фотографии автомобиля" width="800" height="500">
+        <label>Фотография<input id="car-photo" name="photo" type="file" accept="image/jpeg,image/png,image/webp" aria-describedby="car-photo-hint car-photo-status"></label>
+        <p id="car-photo-hint" class="form-hint">Необязательно. JPG, PNG или WebP до 12 МБ. Фото будет уменьшено и сохранено только в этом браузере.</p>
+        <p id="car-photo-status" class="form-hint" role="status" aria-live="polite"></p>
+        <button id="remove-car-photo" class="text-button" type="button" hidden>Убрать фотографию</button>
+      </div>
+      <label class="checkbox-row"><input type="checkbox" name="active" checked> Показывать в каталоге</label>
+      <p id="car-error" class="form-error" role="alert" hidden></p>
+      <div class="modal-actions"><button class="button secondary" type="button" data-close-dialog="car-dialog">Отмена</button><button id="save-car" class="button primary" type="submit">Добавить автомобиль</button></div>
+    </form>
+  </dialog>
 </body>
 </html>

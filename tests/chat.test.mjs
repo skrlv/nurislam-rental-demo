@@ -76,6 +76,42 @@ test('availability-only query uses selected exact dates', () => {
   assert.doesNotMatch(result.text, /Rolls-Royce:/);
 });
 
+test('a newly added car is found by its name with case, accents and punctuation normalized', () => {
+  const added = { id: 'car-generated-731', name: 'BMW 5 серии', active: true };
+  const result = answer('Есть «bmw 5 се́рии»?', {}, { cars: [...cars, added] });
+  assert.deepEqual(result.actions.map(action => action.carId), [added.id]);
+  assert.match(result.text, /BMW 5 серии/);
+});
+
+test('dynamic name overrides selected car for availability with and without a new period', () => {
+  const added = { id: 'uuid-bmw-5', name: 'BMW 5 серии', active: true };
+  const context = { carId: 'maybach', start: '2026-11-20T12:00:00Z', end: '2026-11-20T16:00:00Z' };
+  for (const query of ['BMW 5 серии свободен?', 'BMW 5 серии завтра на 3 часа с 15:00']) {
+    const calls = [];
+    const result = answer(query, context, { cars: [...cars, added], availability(id) { calls.push(id); return { available: false }; } });
+    assert.deepEqual(calls, [added.id]);
+    assert.match(result.text, /BMW 5 серии: занят в демокалендаре/);
+    assert.doesNotMatch(result.text, /Mercedes-Maybach:/);
+  }
+});
+
+test('longest whole car name wins and substrings inside words do not match', () => {
+  const dynamicCars = [{ id: 'short', name: 'BMW 5' }, { id: 'long', name: 'BMW 5 серии' }];
+  assert.equal(answer('BMW 5 серии', {}, { cars: dynamicCars }).actions[0].carId, 'long');
+  assert.equal(answer('ABMW 5 серииXYZ', {}, { cars: dynamicCars }).actions.length, 0);
+});
+
+test('seed aliases resolve catalog names without depending on seed IDs', () => {
+  const renamed = [{ id: 'custom-rr', name: 'Rolls-Royce Ghost' }, { id: 'custom-mb', name: 'Mercedes-Maybach S 580' }];
+  assert.equal(answer('ролс', {}, { cars: renamed }).actions[0].carId, 'custom-rr');
+  assert.equal(answer('майбах', {}, { cars: renamed }).actions[0].carId, 'custom-mb');
+});
+
+test('inactive added cars are not offered by name', () => {
+  const result = answer('BMW 5 серии', {}, { cars: [...cars, { id: 'inactive-bmw', name: 'BMW 5 серии', active: false }] });
+  assert.equal(result.actions.length, 0);
+});
+
 for (const q of ['Какая цена?', 'Нужен залог?', 'С водителем?', 'В каком городе?', 'Какая страховка?', 'Какой нужен стаж?']) test(`unknown business terms stay unknown: ${q}`, () => {
   const result = answer(q);
   assert.match(result.text, /не подтвержд[её]н|уточн|согласов/);

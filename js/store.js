@@ -1,6 +1,8 @@
 /** Browser-local demonstration data. Never a shared booking service. */
 export const DEMO_TIMEZONE = 'Europe/Moscow';
 export const STORAGE_KEY = 'nurislam-rental-demo-v1';
+export const DEFAULT_CAR_IMAGE = 'assets/images/car-placeholder.svg';
+export const MAX_CAR_IMAGE_LENGTH = 650 * 1024;
 export const BLOCKING_STATUSES = ['confirmed', 'completed', 'blocked'];
 export const STATUS_LABELS = { pending: 'Новая заявка', confirmed: 'Подтверждена', completed: 'Завершена', cancelled: 'Отменена', blocked: 'Недоступен' };
 const STATUSES = Object.keys(STATUS_LABELS);
@@ -8,6 +10,33 @@ const OFFSET = 3 * 60 * 60 * 1000;
 const DAY = 24 * 60 * 60 * 1000;
 const clone = value => JSON.parse(JSON.stringify(value));
 const fail = (message, code = 'VALIDATION') => Object.assign(new Error(message), { code });
+const STATIC_CAR_IMAGES = new Set([
+  DEFAULT_CAR_IMAGE,
+  ...['rolls-royce', 'maybach', 'maybach-480', 'maybach-800', 'business', 'business-480', 'business-800', 'hero', 'hero-720', 'hero-1280', 'hero-1920'].map(name => `assets/images/${name}.webp`),
+]);
+
+/** Only packaged images or bounded raster uploads; never remote URLs or uploaded SVG. */
+export function isSafeCarImage(image) {
+  if (typeof image !== 'string' || image.length > MAX_CAR_IMAGE_LENGTH) return false;
+  if (STATIC_CAR_IMAGES.has(image)) return true;
+  const prefix = /^data:image\/(jpeg|png|webp);base64,/.exec(image);
+  if (!prefix) return false;
+  const encoded = image.slice(prefix[0].length);
+  if (!encoded.length || encoded.length % 4 || !/^[A-Za-z0-9+/]+={0,2}$/.test(encoded)) return false;
+  try {
+    const header = atob(encoded.slice(0, 24));
+    if (prefix[1] === 'jpeg') return header.startsWith('\xff\xd8\xff');
+    if (prefix[1] === 'png') return header.startsWith('\x89PNG\r\n\x1a\n');
+    return header.startsWith('RIFF') && header.slice(8, 12) === 'WEBP';
+  } catch { return false; }
+}
+
+function cleanCarImage(image = DEFAULT_CAR_IMAGE) {
+  if (typeof image === 'string' && image.length > MAX_CAR_IMAGE_LENGTH) throw fail('Изображение слишком большое. Выберите фото меньшего размера (до 650 КБ после обработки).');
+  if (!isSafeCarImage(image)) throw fail('Выберите корректное изображение JPEG, PNG или WebP.');
+  return image;
+}
+
 const iso = value => {
   if (typeof value !== 'number' && (typeof value !== 'string' || !/(?:Z|[+-]\d{2}:\d{2})$/.test(value))) throw fail('Укажите дату и время с часовым поясом.');
   const time = typeof value === 'number' ? value : Date.parse(value);
@@ -82,7 +111,10 @@ function validateState(value) {
   if (!value || value.version !== 1 || !Array.isArray(value.cars) || !Array.isArray(value.reservations)) throw fail('Сохранённые демоданные повреждены. Восстановите демоверсию в CRM.', 'STORAGE_CORRUPT');
   const ids = new Set();
   for (const car of value.cars) {
-    if (typeof car.id !== 'string' || typeof car.name !== 'string' || typeof car.active !== 'boolean' || ids.has(car.id)) throw fail('Данные автопарка повреждены. Восстановите демоверсию в CRM.', 'STORAGE_CORRUPT');
+    if (!car || typeof car.id !== 'string' || typeof car.name !== 'string' || typeof car.active !== 'boolean' || ids.has(car.id)) throw fail('Данные автопарка повреждены. Восстановите демоверсию в CRM.', 'STORAGE_CORRUPT');
+    // Older records without a picture remain usable; unsafe persisted sources never render.
+    if (car.image === undefined) car.image = DEFAULT_CAR_IMAGE;
+    if (!isSafeCarImage(car.image)) throw fail('Сохранённое изображение автомобиля повреждено. Восстановите демоверсию в CRM.', 'STORAGE_CORRUPT');
     ids.add(car.id);
   }
   const reservationIds = new Set();
@@ -165,6 +197,25 @@ export function createDemoStore({ storage = null, now = () => Date.now(), idFact
     },
     createRequest(payload) { return makeReservation(payload, 'pending'); },
     createReservation(payload) { return makeReservation(payload); },
+    createCar(payload = {}) {
+      const next = fresh();
+      if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw fail('Проверьте данные автомобиля.');
+      const name = cleanText(payload.name, 80);
+      if (!name) throw fail('Укажите название автомобиля.');
+      const description = cleanText(payload.description, 220);
+      const category = payload.category === undefined ? 'meeting' : payload.category;
+      if (!['wedding', 'meeting'].includes(category)) throw fail('Выберите категорию автомобиля.');
+      const active = payload.active === undefined ? true : payload.active;
+      if (typeof active !== 'boolean') throw fail('Некорректное состояние автомобиля.');
+      const image = cleanCarImage(payload.image);
+      const baseId = `car-${idFactory()}`;
+      let id = baseId, suffix = 2;
+      while (next.cars.some(car => car.id === id)) id = `${baseId}-${suffix++}`;
+      const car = { id, name, description, category, image, color: '', seats: null, active, isDemo: true, createdAt: now(), updatedAt: now() };
+      next.cars.push(car);
+      persist(next);
+      return clone(car);
+    },
     updateReservation(id, patch) {
       const next = fresh();
       const record = next.reservations.find(item => item.id === id);
@@ -190,6 +241,8 @@ export function createDemoStore({ storage = null, now = () => Date.now(), idFact
       if (patch.description !== undefined) car.description = cleanText(patch.description, 220);
       if (patch.active !== undefined) { if (typeof patch.active !== 'boolean') throw fail('Некорректное состояние автомобиля.'); car.active = patch.active; }
       if (patch.category !== undefined) { if (!['wedding', 'meeting'].includes(patch.category)) throw fail('Выберите категорию автомобиля.'); car.category = patch.category; }
+      if (patch.image !== undefined) car.image = cleanCarImage(patch.image);
+      car.updatedAt = now();
       persist(next); return clone(car);
     },
     resetDemo() { persist(seedState(now())); },
@@ -208,6 +261,7 @@ export const getStorageStatus = () => store.getStorageStatus();
 export const availability = (...args) => store.availability(...args);
 export const createRequest = payload => store.createRequest(payload);
 export const createReservation = payload => store.createReservation(payload);
+export const createCar = payload => store.createCar(payload);
 export const updateReservation = (...args) => store.updateReservation(...args);
 export const updateCar = (...args) => store.updateCar(...args);
 export const resetDemo = () => store.resetDemo();

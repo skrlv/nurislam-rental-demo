@@ -1,8 +1,9 @@
-import { getCars, getReservations, getStorageStatus, createReservation, updateReservation, updateCar, resetDemo, subscribe, defaultPeriod, toLocalInput, parseLocalDateTime, formatDateTime, durationLabel, STATUS_LABELS } from './store.js';
+import { getCars, getReservations, getStorageStatus, createReservation, updateReservation, createCar, updateCar, isSafeCarImage, DEFAULT_CAR_IMAGE, MAX_CAR_IMAGE_LENGTH, resetDemo, subscribe, defaultPeriod, toLocalInput, parseLocalDateTime, formatDateTime, durationLabel, STATUS_LABELS } from './store.js?v=20261117-fleet';
 
 const $ = selector => document.querySelector(selector);
 const DAY = 86400000, OFFSET = 10800000;
 let activeTab = 'calendar', weekOffset = 0, toastTimer;
+let carImage = DEFAULT_CAR_IMAGE, photoVersion = 0, photoBusy = false, photoError = false;
 const descriptions = {
   calendar: ['Календарь аренды', 'Весь автопарк и занятость — в одном месте.'],
   requests: ['Заявки и записи', 'Управляйте тестовыми обращениями и статусами.'],
@@ -72,7 +73,7 @@ function renderCalendar(cars, reservations) {
   }
   for (const car of cars) {
     const label = el('div', 'calendar-car');
-    const image = el('img'); image.src = car.image; image.alt = ''; image.width = 66; image.height = 40; image.loading = 'lazy';
+    const image = el('img'); image.src = isSafeCarImage(car.image) ? car.image : DEFAULT_CAR_IMAGE; image.alt = ''; image.width = 66; image.height = 40; image.loading = 'lazy';
     label.append(image, el('strong', '', car.name), el('span', '', car.active ? 'Демонстрационный авто' : 'Скрыт из каталога'));
     root.append(label);
     for (let i = 0; i < 7; i++) {
@@ -139,7 +140,7 @@ function renderFleet(cars) {
   const root = $('#fleet-grid'); root.replaceChildren();
   for (const car of cars) {
     const card = el('article', 'fleet-card'), image = el('img');
-    image.src = car.image; image.alt = `${car.name}, иллюстративное изображение`; image.loading = 'lazy'; image.width = 560; image.height = 340;
+    image.src = isSafeCarImage(car.image) ? car.image : DEFAULT_CAR_IMAGE; image.alt = car.name; image.loading = 'lazy'; image.width = 560; image.height = 340;
     const content = el('div', 'fleet-card-content');
     content.append(el('div', `fleet-status${car.active ? '' : ' inactive'}`, car.active ? 'В каталоге' : 'Скрыт из каталога'), el('h3', '', car.name), el('p', '', car.description));
     const actions = el('div', 'fleet-card-actions');
@@ -179,16 +180,69 @@ function updateDuration() {
   catch { $('#reservation-duration').textContent = 'Укажите начало и окончание аренды.'; }
 }
 
-function openCar(car) {
-  const form = $('#car-form');
-  form.elements.id.value = car.id; form.elements.name.value = car.name; form.elements.description.value = car.description;
-  form.elements.category.value = car.category; form.elements.active.checked = car.active;
-  $('#car-error').hidden = true; $('#car-dialog').showModal();
+function renderPhoto() {
+  $('#car-photo-preview').src = carImage;
+  $('#remove-car-photo').hidden = carImage === DEFAULT_CAR_IMAGE && !photoError && !photoBusy;
+  $('#save-car').disabled = photoBusy;
+}
+
+function openCar(car = null) {
+  const form = $('#car-form'); form.reset();
+  photoVersion++; photoBusy = false; photoError = false;
+  form.elements.id.value = car?.id || ''; form.elements.name.value = car?.name || ''; form.elements.description.value = car?.description || '';
+  form.elements.category.value = car?.category || 'meeting'; form.elements.active.checked = car?.active ?? true;
+  carImage = isSafeCarImage(car?.image) ? car.image : DEFAULT_CAR_IMAGE;
+  $('#car-title').textContent = car ? 'Изменить автомобиль' : 'Добавить автомобиль';
+  $('#save-car').textContent = car ? 'Сохранить изменения' : 'Добавить автомобиль';
+  $('#car-photo-status').textContent = '';
+  $('#car-error').hidden = true; renderPhoto(); $('#car-dialog').showModal(); form.elements.name.focus();
+}
+
+async function preparePhoto(file) {
+  if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) throw new Error('Выберите фотографию в формате JPG, PNG или WebP.');
+  if (file.size > 12 * 1024 * 1024) throw new Error('Фотография слишком большая. Выберите файл до 12 МБ.');
+  const url = URL.createObjectURL(file);
+  try {
+    const source = new Image();
+    await new Promise((resolve, reject) => { source.onload = resolve; source.onerror = () => reject(new Error('Не удалось открыть фотографию. Попробуйте другой файл.')); source.src = url; });
+    if (!source.naturalWidth || !source.naturalHeight) throw new Error('Не удалось определить размер фотографии.');
+    const canvas = document.createElement('canvas');
+    const scale = Math.min(1, 1024 / Math.max(source.naturalWidth, source.naturalHeight));
+    canvas.width = Math.max(1, Math.round(source.naturalWidth * scale)); canvas.height = Math.max(1, Math.round(source.naturalHeight * scale));
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('Браузер не поддерживает обработку фотографии. Можно сохранить автомобиль без фото.');
+    context.fillStyle = '#f5f5ef'; context.fillRect(0, 0, canvas.width, canvas.height); context.drawImage(source, 0, 0, canvas.width, canvas.height);
+    for (const quality of [.82, .65, .45]) {
+      const result = canvas.toDataURL('image/jpeg', quality);
+      if (result.length <= MAX_CAR_IMAGE_LENGTH && isSafeCarImage(result)) return result;
+    }
+    throw new Error('Не удалось достаточно уменьшить фотографию. Выберите файл меньшего размера.');
+  } finally { URL.revokeObjectURL(url); }
 }
 
 document.querySelectorAll('[data-tab]').forEach(node => node.addEventListener('click', () => setTab(node.dataset.tab)));
 document.querySelectorAll('[data-close-dialog]').forEach(node => node.addEventListener('click', () => document.getElementById(node.dataset.closeDialog).close()));
 $('#add-reservation').addEventListener('click', () => openReservation());
+$('#add-car').addEventListener('click', () => openCar());
+$('#car-dialog').addEventListener('close', () => { photoVersion++; photoBusy = false; });
+$('#car-photo').addEventListener('change', async event => {
+  const file = event.target.files[0]; if (!file) return;
+  const version = ++photoVersion; photoBusy = true; photoError = false;
+  $('#car-error').hidden = true; $('#car-photo-status').textContent = 'Подготавливаю фотографию…'; renderPhoto();
+  try {
+    const result = await preparePhoto(file);
+    if (version !== photoVersion) return;
+    carImage = result; $('#car-photo-status').textContent = 'Фотография готова. Нажмите кнопку сохранения.';
+  } catch (error) {
+    if (version !== photoVersion) return;
+    photoError = true; $('#car-error').textContent = error.message; $('#car-error').hidden = false;
+    $('#car-photo-status').textContent = 'Выберите другой файл или уберите фотографию.';
+  } finally { if (version === photoVersion) { photoBusy = false; renderPhoto(); } }
+});
+$('#remove-car-photo').addEventListener('click', () => {
+  photoVersion++; photoBusy = false; photoError = false; carImage = DEFAULT_CAR_IMAGE;
+  $('#car-photo').value = ''; $('#car-error').hidden = true; $('#car-photo-status').textContent = 'Будет показана заглушка без фотографии.'; renderPhoto();
+});
 $('#previous-week').addEventListener('click', () => { weekOffset--; render(); });
 $('#next-week').addEventListener('click', () => { weekOffset++; render(); });
 $('#current-week').addEventListener('click', () => { weekOffset = 0; render(); });
@@ -208,13 +262,16 @@ $('#reservation-form').addEventListener('submit', event => {
 });
 $('#car-form').addEventListener('submit', event => {
   event.preventDefault(); const form = event.currentTarget;
+  if (photoBusy || photoError) return;
   try {
-    updateCar(form.elements.id.value, { name: form.elements.name.value, description: form.elements.description.value, category: form.elements.category.value, active: form.elements.active.checked });
-    $('#car-dialog').close(); toast('Демонстрационный автомобиль обновлён.');
-  } catch (error) { $('#car-error').textContent = error.message; $('#car-error').hidden = false; }
+    const payload = { name: form.elements.name.value, description: form.elements.description.value, category: form.elements.category.value, active: form.elements.active.checked, image: carImage };
+    const editing = Boolean(form.elements.id.value);
+    if (editing) updateCar(form.elements.id.value, payload); else createCar(payload);
+    $('#car-dialog').close(); toast(editing ? 'Автомобиль обновлён.' : 'Автомобиль добавлен в автопарк и календарь. Данные сохранены в этом браузере.');
+  } catch (error) { $('#car-error').textContent = error.message; $('#car-error').hidden = false; $('#car-error').scrollIntoView({ block: 'nearest' }); }
 });
 $('#reset-demo').addEventListener('click', () => {
-  if (confirm('Восстановить демоверсию? Созданные в этом браузере тестовые заявки и изменения автомобилей будут заменены начальными примерами.')) run(() => { resetDemo(); weekOffset = 0; render(); }, 'Демоданные восстановлены.');
+  if (confirm('Восстановить демоверсию? Созданные в этом браузере тестовые заявки, добавленные автомобили и их фотографии будут заменены начальными примерами.')) run(() => { resetDemo(); weekOffset = 0; render(); }, 'Демоданные восстановлены.');
 });
 subscribe(render);
 render();

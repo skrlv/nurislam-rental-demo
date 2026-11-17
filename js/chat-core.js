@@ -109,8 +109,14 @@ export function formatPeriod(period) {
 }
 
 function matchedCar(text, cars, context) {
-  const id = /ролл|ролс|rolls|ройс|роис/.test(text) ? 'rolls-royce' : /майбах|маибах|майбак|maybach|маебах/.test(text) ? 'maybach' : /бизнес.?класс|business/.test(text) ? 'business' : context.carId;
-  return cars.find(car => car.id === id);
+  const words = value => normalizeText(value).replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+  const query = ` ${words(text)} `;
+  const named = cars.map(car => ({ car, name: words(car.name) }))
+    .filter(item => item.name && query.includes(` ${item.name} `))
+    .sort((a, b) => b.name.length - a.name.length)[0];
+  if (named) return named.car;
+  const alias = [/ролл|ролс|rolls|ройс|роис/, /майбах|маибах|майбак|maybach|маебах/, /бизнес.?класс|business/].find(pattern => pattern.test(text));
+  return alias ? cars.find(car => alias.test(normalizeText(car.name))) : cars.find(car => car.id === context.carId);
 }
 
 function availabilityText(cars, start, end, getAvailability) {
@@ -154,8 +160,8 @@ export function answerQuestion(message, context = {}, options = {}) {
     if (!range) return respond('Для проверки нужны точные начало и окончание. Напишите, например: «завтра с 15:00 на 3 часа». Проверка использует демонстрационный календарь этого браузера.');
     return respond(`Проверяю выбранный период: ${formatPeriod(context)}.\n\n` + availabilityText(car ? [car] : cars, context.start, context.end, options.availability));
   }
-  if (/машин|авто|автопарк|ролл|ролс|rolls|роис|ройс|майбах|маибах|maybach|мерседес|mercedes|бизнес.?класс|какие\s+модел/.test(text)) {
-    const car = matchedCar(text, cars, {});
+  const car = matchedCar(text, cars, {});
+  if (car || /машин|авто|автопарк|ролл|ролс|rolls|роис|ройс|майбах|маибах|maybach|мерседес|mercedes|бизнес.?класс|какие\s+модел/.test(text)) {
     const choices = car ? [car] : cars;
     return respond(choices.length ? `В демонстрационном каталоге: ${choices.map(item => item.name).join(', ')}.\n\nИзображения и состав каталога — примеры. Реальный автопарк нужно подтвердить у владельца. Выберите автомобиль, затем проверьте даты.` : 'В демонстрационном каталоге сейчас нет активных автомобилей.', choices.map(item => ({ type: 'car', label: `Выбрать ${item.name}`, carId: item.id })), ['На 3 часа завтра', 'На двое суток', 'Условия аренды']);
   }
